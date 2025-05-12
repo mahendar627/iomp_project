@@ -1,19 +1,17 @@
 import streamlit as st
-import heapq
+import numpy as np
 
-# Knapsack solver using Branch and Bound
+# Node class for Branch and Bound
 class Node:
     def _init_(self, level, value, weight, bound, items):
-        self.level = level
-        self.value = value
-        self.weight = weight
-        self.bound = bound
-        self.items = items
+        self.level = int(level)
+        self.value = float(value)
+        self.weight = float(weight)
+        self.bound = float(bound)
+        self.items = list(items)
 
-    def _lt_(self, other):
-        return self.bound > other.bound
-
-def calculate_bound(node, capacity, values, weights, n):
+# Function to calculate the bound for a node
+def calculate_bound(node, n, capacity, values, weights):
     if node.weight >= capacity:
         return 0
 
@@ -31,75 +29,85 @@ def calculate_bound(node, capacity, values, weights, n):
 
     return bound
 
+# Branch and Bound Knapsack Solver
 def knapsack_branch_and_bound(values, weights, capacity):
     n = len(values)
-    items = list(range(n))
-    value_weight_ratio = [(values[i] / weights[i], i) for i in range(n)]
-    value_weight_ratio.sort(reverse=True, key=lambda x: x[0])
-
-    values = [values[i] for _, i in value_weight_ratio]
-    weights = [weights[i] for _, i in value_weight_ratio]
-    items = [i for _, i in value_weight_ratio]
+    items = sorted(range(n), key=lambda i: values[i] / weights[i], reverse=True)
+    sorted_weights = [weights[i] for i in items]
+    sorted_values = [values[i] for i in items]
 
     queue = []
     root = Node(-1, 0, 0, 0.0, [])
-    root.bound = calculate_bound(root, capacity, values, weights, n)
-    heapq.heappush(queue, root)
+    root.bound = calculate_bound(root, n, capacity, sorted_values, sorted_weights)
+    queue.append(root)
 
     max_value = 0
     best_items = []
 
     while queue:
-        node = heapq.heappop(queue)
+        current = queue.pop(0)
 
-        if node.bound > max_value:
-            next_level = node.level + 1
+        if current.level == n - 1 or current.bound <= max_value:
+            continue
 
-            if next_level < n:
-                included = Node(next_level, node.value + values[next_level],
-                                node.weight + weights[next_level], 0.0, node.items + [items[next_level]])
-                if included.weight <= capacity:
-                    if included.value > max_value:
-                        max_value = included.value
-                        best_items = included.items
-                    included.bound = calculate_bound(included, capacity, values, weights, n)
-                    if included.bound > max_value:
-                        heapq.heappush(queue, included)
+        next_level = current.level + 1
 
-                excluded = Node(next_level, node.value, node.weight, 0.0, node.items)
-                excluded.bound = calculate_bound(excluded, capacity, values, weights, n)
-                if excluded.bound > max_value:
-                    heapq.heappush(queue, excluded)
+        # Include the next item
+        left = Node(
+            next_level,
+            current.value + sorted_values[next_level],
+            current.weight + sorted_weights[next_level],
+            0.0,
+            current.items + [items[next_level]],
+        )
+        if left.weight <= capacity and left.value > max_value:
+            max_value = left.value
+            best_items = left.items
+        left.bound = calculate_bound(left, n, capacity, sorted_values, sorted_weights)
+        if left.bound > max_value:
+            queue.append(left)
+
+        # Exclude the next item
+        right = Node(
+            next_level,
+            current.value,
+            current.weight,
+            0.0,
+            current.items,
+        )
+        right.bound = calculate_bound(right, n, capacity, sorted_values, sorted_weights)
+        if right.bound > max_value:
+            queue.append(right)
 
     return max_value, sorted(best_items)
 
-# Streamlit app
-st.title("Knapsack Problem Solver (Branch and Bound)")
-st.write("This application solves the Knapsack problem using the Branch and Bound technique.")
+# Streamlit application
+st.title("Knapsack Problem Solver - Branch and Bound")
+st.write("Solve the Knapsack problem using the Branch and Bound technique.")
 
 # User input for capacity
-capacity = st.number_input("Enter the capacity of the knapsack:", min_value=1, step=1, value=10)
+capacity = st.number_input("Enter the capacity of the knapsack:", min_value=1, step=1)
 
 # User input for items
-st.write("Enter items with their weights and values:")
-num_items = st.number_input("Number of items:", min_value=1, step=1, value=1)
-
-weights = []
-values = []
-
-for i in range(num_items):
-    st.write(f"Item {i + 1}")
-    weight = st.number_input(f"Weight of item {i + 1}:", min_value=1, step=1, key=f"weight_{i}")
-    value = st.number_input(f"Value of item {i + 1}:", min_value=1, step=1, key=f"value_{i}")
-    weights.append(weight)
-    values.append(value)
+st.write("Add items with their weights and values:")
+item_data = st.experimental_data_editor(
+    [{"Weight": 0, "Value": 0}],
+    num_rows="dynamic",
+    key="item_editor"
+)
 
 # Solve the problem when the button is clicked
 if st.button("Solve Knapsack Problem"):
-    if len(weights) != num_items or len(values) != num_items:
-        st.error("Please provide weights and values for all items.")
-    elif capacity <= 0:
-        st.error("Capacity must be greater than zero.")
+    try:
+        weights = [int(row["Weight"]) for row in item_data if row["Weight"] > 0]
+        values = [int(row["Value"]) for row in item_data if row["Value"] > 0]
+    except ValueError:
+        st.error("Please enter valid integers for weights and values.")
+
+    if not weights or not values:
+        st.error("Weights and values cannot be empty or zero.")
+    elif len(weights) != len(values):
+        st.error("Ensure all items have both weight and value.")
     else:
         max_value, included_items = knapsack_branch_and_bound(values, weights, capacity)
         st.success(f"Maximum value that can be obtained: {max_value}")
