@@ -1,95 +1,105 @@
 import streamlit as st
 import heapq
 
-# Branch and Bound Node class
+# Knapsack solver using Branch and Bound
 class Node:
-    def _init_(self, level, profit, weight, bound, items_included):
-        self.level = level  # Current item level in the decision tree
-        self.profit = profit  # Current profit
-        self.weight = weight  # Current weight
-        self.bound = bound  # Upper bound on the best possible profit
-        self.items_included = items_included  # Items included in the knapsack
+    def _init_(self, level, value, weight, bound, items):
+        self.level = level
+        self.value = value
+        self.weight = weight
+        self.bound = bound
+        self.items = items
 
     def _lt_(self, other):
-        return self.bound > other.bound  # Max-Heap based on bound
+        return self.bound > other.bound
 
-# Function to calculate upper bound
-def calculate_bound(node, capacity, weights, values, n):
+def calculate_bound(node, capacity, values, weights, n):
     if node.weight >= capacity:
         return 0
-    profit_bound = node.profit
+
+    bound = node.value
     j = node.level + 1
     total_weight = node.weight
 
     while j < n and total_weight + weights[j] <= capacity:
         total_weight += weights[j]
-        profit_bound += values[j]
+        bound += values[j]
         j += 1
 
     if j < n:
-        profit_bound += (capacity - total_weight) * values[j] / weights[j]
+        bound += (capacity - total_weight) * (values[j] / weights[j])
 
-    return profit_bound
+    return bound
 
-# Branch and Bound Knapsack Solver
 def knapsack_branch_and_bound(values, weights, capacity):
     n = len(values)
-    value_per_weight = sorted(range(n), key=lambda i: values[i] / weights[i], reverse=True)
-    values = [values[i] for i in value_per_weight]
-    weights = [weights[i] for i in value_per_weight]
+    items = list(range(n))
+    value_weight_ratio = [(values[i] / weights[i], i) for i in range(n)]
+    value_weight_ratio.sort(reverse=True, key=lambda x: x[0])
 
-    priority_queue = []
-    u = Node(-1, 0, 0, 0, [])
-    u.bound = calculate_bound(u, capacity, weights, values, n)
-    heapq.heappush(priority_queue, u)
+    values = [values[i] for _, i in value_weight_ratio]
+    weights = [weights[i] for _, i in value_weight_ratio]
+    items = [i for _, i in value_weight_ratio]
 
-    max_profit = 0
-    items_included = []
+    queue = []
+    root = Node(-1, 0, 0, 0.0, [])
+    root.bound = calculate_bound(root, capacity, values, weights, n)
+    heapq.heappush(queue, root)
 
-    while priority_queue:
-        u = heapq.heappop(priority_queue)
+    max_value = 0
+    best_items = []
 
-        if u.bound > max_profit and u.level < n - 1:
-            v = Node(u.level + 1, u.profit + values[u.level + 1], u.weight + weights[u.level + 1], 0, u.items_included + [u.level + 1])
-            if v.weight <= capacity and v.profit > max_profit:
-                max_profit = v.profit
-                items_included = v.items_included
+    while queue:
+        node = heapq.heappop(queue)
 
-            v.bound = calculate_bound(v, capacity, weights, values, n)
-            if v.bound > max_profit:
-                heapq.heappush(priority_queue, v)
+        if node.bound > max_value:
+            next_level = node.level + 1
 
-            v = Node(u.level + 1, u.profit, u.weight, 0, u.items_included)
-            v.bound = calculate_bound(v, capacity, weights, values, n)
-            if v.bound > max_profit:
-                heapq.heappush(priority_queue, v)
+            if next_level < n:
+                included = Node(next_level, node.value + values[next_level],
+                                node.weight + weights[next_level], 0.0, node.items + [items[next_level]])
+                if included.weight <= capacity:
+                    if included.value > max_value:
+                        max_value = included.value
+                        best_items = included.items
+                    included.bound = calculate_bound(included, capacity, values, weights, n)
+                    if included.bound > max_value:
+                        heapq.heappush(queue, included)
 
-    return max_profit, [value_per_weight[i] for i in items_included]
+                excluded = Node(next_level, node.value, node.weight, 0.0, node.items)
+                excluded.bound = calculate_bound(excluded, capacity, values, weights, n)
+                if excluded.bound > max_value:
+                    heapq.heappush(queue, excluded)
+
+    return max_value, sorted(best_items)
 
 # Streamlit app
 st.title("Knapsack Problem Solver (Branch and Bound)")
 st.write("This application solves the Knapsack problem using the Branch and Bound technique.")
 
 # User input for capacity
-capacity = st.number_input("Enter the capacity of the knapsack:", min_value=1, step=1)
+capacity = st.number_input("Enter the capacity of the knapsack:", min_value=1, step=1, value=10)
 
 # User input for items
-st.write("Add items with their weights and values:")
-item_data = st.experimental_data_editor(
-    [{"Weight": 0, "Value": 0}], 
-    num_rows="dynamic", 
-    key="item_editor"
-)
+st.write("Enter items with their weights and values:")
+num_items = st.number_input("Number of items:", min_value=1, step=1, value=1)
 
-# Solve the problem when items are added
+weights = []
+values = []
+
+for i in range(num_items):
+    st.write(f"Item {i + 1}")
+    weight = st.number_input(f"Weight of item {i + 1}:", min_value=1, step=1, key=f"weight_{i}")
+    value = st.number_input(f"Value of item {i + 1}:", min_value=1, step=1, key=f"value_{i}")
+    weights.append(weight)
+    values.append(value)
+
+# Solve the problem when the button is clicked
 if st.button("Solve Knapsack Problem"):
-    weights = [int(row["Weight"]) for row in item_data if row["Weight"] > 0]
-    values = [int(row["Value"]) for row in item_data if row["Value"] > 0]
-
-    if not weights or not values:
-        st.error("Please add valid items with weights and values greater than 0.")
-    elif len(weights) != len(values):
-        st.error("Ensure that all items have both weight and value.")
+    if len(weights) != num_items or len(values) != num_items:
+        st.error("Please provide weights and values for all items.")
+    elif capacity <= 0:
+        st.error("Capacity must be greater than zero.")
     else:
         max_value, included_items = knapsack_branch_and_bound(values, weights, capacity)
         st.success(f"Maximum value that can be obtained: {max_value}")
